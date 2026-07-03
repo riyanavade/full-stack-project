@@ -7,15 +7,22 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
+
+// Production-ready CORS configuration
+const corsOptions = {
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+    optionsSuccessStatus: 200
+};
+
 const io = new Server(server, {
-    cors: {
-        origin: "*", // allow frontend
-        methods: ["GET", "POST", "PUT"]
-    }
+    cors: corsOptions,
+    transports: ['websocket', 'polling'] // Enable both for better compatibility
 });
 app.set('io', io);
 
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 
 const authRoutes = require('./routes/auth');
@@ -27,6 +34,19 @@ app.use('/api/auth', authRoutes);
 app.use('/api/rides', rideRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/payment', paymentRoutes);
+
+// Health check endpoint (important for monitoring and deployment)
+app.get('/', (req, res) => {
+    res.json({ 
+        message: 'Backend server is running',
+        status: 'healthy',
+        timestamp: new Date().toISOString()
+    });
+});
+
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
+});
 
 
 // Socket.io for Real-time location tracking
