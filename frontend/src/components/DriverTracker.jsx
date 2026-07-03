@@ -63,6 +63,22 @@ const DriverTracker = ({ socket, bookingId, userId }) => {
     }
   };
 
+  // Auto-register driver on socket connect or when going online
+  useEffect(() => {
+    if (socket && isOnline && userId) {
+      socket.emit('registerDriver', { driverId: userId });
+
+      const handleConnect = () => {
+        socket.emit('registerDriver', { driverId: userId });
+      };
+
+      socket.on('connect', handleConnect);
+      return () => {
+        socket.off('connect', handleConnect);
+      };
+    }
+  }, [socket, isOnline, userId]);
+
   // Clean up on unmount
   useEffect(() => {
     return () => {

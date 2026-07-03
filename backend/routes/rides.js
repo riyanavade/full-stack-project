@@ -163,4 +163,72 @@ router.put('/cancel/:id', verifyToken, async (req, res) => {
     }
 });
 
+// Accept a ride
+router.put('/accept/:id', verifyToken, async (req, res) => {
+    try {
+        const booking = await Booking.findById(req.params.id);
+        if (!booking) {
+            return res.status(404).json({ message: 'Booking not found' });
+        }
+        
+        const driver = await Driver.findOne({ userId: req.user.id });
+        if (!driver) {
+            return res.status(404).json({ message: 'Driver profile not found' });
+        }
+        
+        booking.driverId = driver._id;
+        booking.status = 'accepted';
+        await booking.save();
+        
+        // Mark driver as unavailable
+        driver.isAvailable = false;
+        await driver.save();
+        
+        // Notify passenger via socket.io
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`ride_${booking._id.toString()}`).emit('rideAccepted', {
+                bookingId: booking._id.toString(),
+                driverId: req.user.id,
+                status: 'accepted'
+            });
+        }
+        
+        res.status(200).json({ message: 'Ride accepted successfully', booking });
+    } catch (err) {
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+});
+
+// Complete a ride
+router.put('/complete/:id', verifyToken, async (req, res) => {
+    try {
+        const booking = await Booking.findById(req.params.id);
+        if (!booking) {
+            return res.status(404).json({ message: 'Booking not found' });
+        }
+        
+        booking.status = 'completed';
+        await booking.save();
+        
+        // Make driver available again
+        if (booking.driverId) {
+            await Driver.findByIdAndUpdate(booking.driverId, { isAvailable: true });
+        }
+        
+        // Notify passenger via socket.io
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`ride_${booking._id.toString()}`).emit('rideCompleted', {
+                bookingId: booking._id.toString(),
+                status: 'completed'
+            });
+        }
+        
+        res.status(200).json({ message: 'Ride completed successfully', booking });
+    } catch (err) {
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+});
+
 module.exports = router;

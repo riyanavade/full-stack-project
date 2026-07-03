@@ -34,6 +34,9 @@ const rideSlice = createSlice({
     },
 
     // New reducers
+    setBookingId: (state, action) => {
+      state.bookingId = action.payload;
+    },
     setPickup: (state, action) => {
       state.pickup = action.payload;
     },
@@ -59,6 +62,7 @@ export const {
   driverAssigned,
   updateDriverLocation,
   completeRide,
+  setBookingId,
   setPickup,
   setDropoff,
   setUserLocation,

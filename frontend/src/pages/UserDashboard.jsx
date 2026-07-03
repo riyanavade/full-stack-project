@@ -5,6 +5,7 @@ import {
   updateDriverLocation,
   startBooking,
   driverAssigned,
+  setBookingId,
   setPickup,
   setDropoff,
   setUserLocation,
@@ -29,6 +30,7 @@ const UserDashboard = () => {
 
   const isDriver = user?.role === 'driver';
   const [pendingRides, setPendingRides] = useState([]);
+  const [acceptNotification, setAcceptNotification] = useState(null);
 
   // Socket.IO connection
   useEffect(() => {
@@ -45,6 +47,22 @@ const UserDashboard = () => {
         const alreadyExists = prev.some((r) => r._id === booking._id);
         return alreadyExists ? prev : [...prev, booking];
       });
+    });
+
+    newSocket.on('rideAccepted', (data) => {
+      dispatch(driverAssigned({ bookingId: data.bookingId }));
+      setAcceptNotification("Driver accepted your request! They are arriving soon.");
+      setTimeout(() => {
+        setAcceptNotification(null);
+      }, 6000);
+    });
+
+    newSocket.on('rideCompleted', (data) => {
+      dispatch(completeRide());
+      setAcceptNotification("You have arrived at your destination! Ride completed.");
+      setTimeout(() => {
+        setAcceptNotification(null);
+      }, 6000);
     });
 
     return () => newSocket.close();
@@ -133,7 +151,7 @@ const UserDashboard = () => {
         }
       );
 
-      dispatch(driverAssigned({ bookingId: response.data.bookingId }));
+      dispatch(setBookingId(response.data.bookingId));
 
       if (socket) {
         socket.emit('joinRide', { bookingId: response.data.bookingId });
@@ -151,6 +169,46 @@ const UserDashboard = () => {
     dispatch(resetRide());
   };
 
+  const handleAcceptRide = async (bookingId, idx) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(
+        `http://localhost:5000/api/rides/accept/${bookingId}`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      dispatch(driverAssigned({ bookingId }));
+
+      if (socket) {
+        socket.emit('joinRide', { bookingId });
+      }
+
+      setPendingRides((prev) => prev.filter((_, i) => i !== idx));
+    } catch (err) {
+      console.error('Error accepting ride:', err);
+    }
+  };
+
+  const handleCompleteRide = async () => {
+    if (!ride.bookingId) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(
+        `http://localhost:5000/api/rides/complete/${ride.bookingId}`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      dispatch(completeRide());
+    } catch (err) {
+      console.error('Error completing ride:', err);
+    }
+  };
+
   const handleLogout = () => {
     dispatch(logout());
     navigate('/login');
@@ -158,6 +216,14 @@ const UserDashboard = () => {
 
   const estimatedFare = ride.estimatedDistance
     ? Math.round(ride.estimatedDistance * 12)
+    : null;
+
+  const driverDistance = ride.driverLocation && ride.pickup
+    ? calculateDistance(ride.driverLocation, ride.pickup)
+    : null;
+
+  const driverEta = driverDistance !== null
+    ? Math.max(1, Math.ceil((driverDistance / 30) * 60))
     : null;
 
   return (
@@ -208,6 +274,26 @@ const UserDashboard = () => {
                 <h2 className="text-2xl font-semibold mb-4">Driver Mode</h2>
                 <DriverTracker socket={socket} bookingId={ride.bookingId} userId={user?.id} />
               </div>
+              
+              {ride.bookingId && (
+                <div className="bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-700">
+                  <h3 className="text-lg font-bold text-green-400 mb-3">
+                    Active Ride
+                  </h3>
+                  <div className="bg-gray-700/50 p-4 rounded-lg border border-gray-600 space-y-2">
+                    <p className="text-sm text-gray-300 font-semibold">Status: On the way to pickup</p>
+                    <div className="flex justify-between items-center mt-4">
+                      <button
+                        onClick={handleCompleteRide}
+                        className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded-lg w-full transition-all"
+                      >
+                        Complete Ride
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-700 flex-1 overflow-y-auto">
                 <h3 className="text-lg font-semibold mb-3 text-gray-200">
                   Pending Ride Requests
@@ -232,7 +318,7 @@ const UserDashboard = () => {
                         <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-600/50">
                           <span className="text-green-400 font-bold text-lg">₹{req.fare}</span>
                           <button
-                            onClick={() => setPendingRides((prev) => prev.filter((_, i) => i !== idx))}
+                            onClick={() => handleAcceptRide(req._id, idx)}
                             className="bg-green-600 hover:bg-green-500 text-white text-sm font-semibold py-1.5 px-4 rounded-lg"
                           >Accept</button>
                         </div>
@@ -338,6 +424,19 @@ const UserDashboard = () => {
                       <h3 className="text-lg font-bold text-green-400 mb-2">
                         Driver is on the way!
                       </h3>
+                      {driverEta !== null ? (
+                        <div className="bg-blue-900/30 border border-blue-500/30 p-3 rounded-lg mb-3">
+                          <p className="text-sm font-semibold text-blue-300">
+                            Arriving within {driverEta} {driverEta === 1 ? 'minute' : 'minutes'}.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="bg-gray-700/30 p-3 rounded-lg mb-3">
+                          <p className="text-sm text-gray-400 italic">
+                            Calculating driver arrival time...
+                          </p>
+                        </div>
+                      )}
                       {ride.driverLocation && (
                         <div className="text-sm text-gray-300 space-y-1">
                           <p>Lat: {ride.driverLocation.lat.toFixed(4)}</p>
@@ -384,6 +483,17 @@ const UserDashboard = () => {
           />
         </div>
       </div>
+
+      {/* Floating Notification */}
+      {acceptNotification && (
+        <div className="fixed top-4 right-4 z-50 bg-green-600/90 backdrop-blur-md text-white px-6 py-4 rounded-xl shadow-2xl border border-green-500/50 flex items-center gap-3 animate-bounce">
+          <div className="bg-green-500 p-2 rounded-full text-lg">🔔</div>
+          <div>
+            <h4 className="font-bold text-white">Ride Status</h4>
+            <p className="text-sm text-green-100">{acceptNotification}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
